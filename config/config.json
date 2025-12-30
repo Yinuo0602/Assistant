@@ -1,0 +1,45 @@
+{
+    "app": {
+        "name": "壹诺直播运营助手",
+        "version": "1.0.0",
+        "debug": true
+    },
+    "douyin": {
+        "room_url": "",
+        "cookie_path": "cookies.json",
+        "enable_voice_interact": false,
+        "at_keywords": [
+            "助理",
+            "失心疯"
+        ],
+        "anchor_name": ""
+    },
+    "ai": {
+        "provider": "deepseek",
+        "doubao": {
+            "api_key": "",
+            "model": "doubao-seed-1-6-251015"
+        },
+        "deepseek": {
+            "api_key": "",
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-chat"
+        },
+        "reply_probability": 0.3,
+        "warmup_interval": 180,
+        "ai_warmup_interval": 120
+    },
+    "features": {
+        "enable_ai_global": false,
+        "link_ai_to_rules": false,
+        "enable_ai_reply": false,
+        "enable_at_reply": false,
+        "enable_ai_warmup": false,
+        "enable_auto_warmup": false,
+        "enable_welcome": false,
+        "enable_thanks_gift": false,
+        "enable_thanks_follow": false,
+        "enable_thanks_like": false,
+        "enable_voice_interact": false
+    }
+}
