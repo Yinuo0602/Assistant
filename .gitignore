@@ -1,0 +1,37 @@
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 构建输出
+build/
+dist/
+*.spec
+
+# 配置文件
+config/config.json
+
+# 编译缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 日志文件
+*.log
+logs/
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# IDE配置
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 其他
+*.bak
+*.tmp
+*.zip
+*.rar

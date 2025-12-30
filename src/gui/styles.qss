@@ -1,0 +1,105 @@
+/* 全局字体 */
+QWidget {
+    font-family: "Microsoft YaHei", "Segoe UI";
+    font-size: 14px;
+}
+
+/* 主窗口背景 */
+QMainWindow {
+    background-color: #f5f5f5;
+}
+
+/* 按钮样式 */
+QPushButton {
+    background-color: #ffffff;
+    border: 1px solid #dcdcdc;
+    border-radius: 4px;
+    padding: 6px 12px;
+    color: #333333;
+}
+
+QPushButton:hover {
+    background-color: #e6e6e6;
+    border-color: #adadad;
+}
+
+QPushButton:pressed {
+    background-color: #d4d4d4;
+}
+
+/* 强调色按钮 */
+QPushButton#primaryInfo {
+    background-color: #0078d4;
+    color: white;
+    border: none;
+}
+QPushButton#primaryInfo:hover {
+    background-color: #106ebe;
+}
+
+/* 输入框 */
+QLineEdit, QTextEdit {
+    background-color: white;
+    border: 1px solid #dcdcdc;
+    border-radius: 4px;
+    padding: 4px;
+    selection-background-color: #0078d4;
+}
+
+/* GroupBox */
+QGroupBox {
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    margin-top: 20px;
+    background-color: white;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 5px;
+    color: #666666;
+    font-weight: bold;
+}
+
+/* 滚动条美化 */
+QScrollBar:vertical {
+    border: none;
+    background: #f0f0f0;
+    width: 8px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:vertical {
+    background: #c1c1c1;
+    min-height: 20px;
+    border-radius: 4px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #a8a8a8;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background: #f0f0f0;
+    height: 8px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #c1c1c1;
+    min-width: 20px;
+    border-radius: 4px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #a8a8a8;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
+}
