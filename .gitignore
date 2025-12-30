@@ -1,37 +1,28 @@
-# 虚拟环境
+# Dependencies
 .venv/
-venv/
-env/
 
-# 构建输出
+# Build output
 build/
 dist/
-*.spec
 
-# 配置文件
+# Configuration
 config/config.json
 
-# 编译缓存
+# Python cache
 __pycache__/
 *.pyc
-*.pyo
 
-# 日志文件
-*.log
+# Environment variables
+.env
+.env.local
+
+# Logs
 logs/
+*.log
 
-# 操作系统文件
-.DS_Store
-Thumbs.db
-
-# IDE配置
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# 其他
-*.bak
-*.tmp
-*.zip
-*.rar
+*~
