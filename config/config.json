@@ -5,17 +5,17 @@
         "debug": true
     },
     "douyin": {
-        "room_url": "",
+        "room_url": "https://live.douyin.com/869760752841?camera_id=0",
         "cookie_path": "cookies.json",
         "enable_voice_interact": false,
         "at_keywords": [
             "助理",
-            "失心疯"
+            "壹诺"
         ],
         "anchor_name": ""
     },
     "ai": {
-        "provider": "deepseek",
+        "provider": "doubao",
         "doubao": {
             "api_key": "",
             "model": "doubao-seed-1-6-251015"
@@ -26,8 +26,12 @@
             "model": "deepseek-chat"
         },
         "reply_probability": 0.3,
-        "warmup_interval": 180,
-        "ai_warmup_interval": 120
+        "warmup_interval": 1800,
+        "ai_warmup_interval": 1200,
+        "welcome_interval": 4,
+        "gift_interval": 5,
+        "follow_interval": 6,
+        "like_interval": 5
     },
     "features": {
         "enable_ai_global": false,

@@ -25,6 +25,7 @@ class LiveController:
         self.features = self.config.get("features", {})
         self.anchor_name = self.config.get("douyin", {}).get("anchor_name", "")
         self.processed_cache = {}
+        self.global_cache = {} # Global event throttling
         
         # Start Threads
         threading.Thread(target=self._enqueue_thread, daemon=True).start()
@@ -73,12 +74,13 @@ class LiveController:
         self.anchor_name = self.config.get("douyin", {}).get("anchor_name", "") # Default empty
         
         self.processed_cache = {} # Key: "type:user" -> timestamp
+        self.global_cache = {}
 
         # 启动消费者线程
         threading.Thread(target=self._msg_consumer, daemon=True).start()
         
-        # 订阅事件
-        self._subscribe_events()
+        # 订阅事件 (不需要重新订阅，因为 handler 还是同一个实例的方法)
+        # self._subscribe_events()
 
     def _load_json(self, path):
         try:
@@ -94,6 +96,14 @@ class LiveController:
         EventBus.subscribe(EventType.FOLLOW, self._handle_follow)
         EventBus.subscribe("like", self._handle_like)
         EventBus.subscribe(EventType.SPEECH, self._handle_speech)
+
+    def _unsubscribe_events(self):
+        EventBus.unsubscribe(EventType.DANMU, self._handle_danmu)
+        EventBus.unsubscribe(EventType.WELCOME, self._handle_welcome)
+        EventBus.unsubscribe(EventType.GIFT, self._handle_gift)
+        EventBus.unsubscribe(EventType.FOLLOW, self._handle_follow)
+        EventBus.unsubscribe("like", self._handle_like)
+        EventBus.unsubscribe(EventType.SPEECH, self._handle_speech)
 
     def _msg_consumer(self):
         """
@@ -113,6 +123,7 @@ class LiveController:
 
     def stop(self):
         self.running = False
+        self._unsubscribe_events()
         
     def update_ai_config(self, provider, api_key, model_name):
         self.ai.update_config(provider, api_key, model_name)
@@ -150,10 +161,10 @@ class LiveController:
         
         # 0. 忽略主播助理自己的消息
         if self._is_self(user):
-            logger.debug(f"Ignore self message: {user}: {content}")
+            logger.info(f"忽略自身消息: {user}: {content}")
             return
 
-        logger.debug(f"收到弹幕 - 用户: {user}, 内容: {content}")
+        logger.info(f"收到弹幕 [用户:{user}] [内容:{content}]")
         
         self.last_active_time = time.time() # Update active time for Idle Check
         
@@ -194,12 +205,12 @@ class LiveController:
         should_reply_ai = False
         reply_prob = self.config.get("ai", {}).get("reply_probability", 0.3)
         
-        # Check specific feature flags
-        enable_at = self.features.get("enable_at_reply", False)
+        # Check specific feature flags (Default AT reply to True to match UI expectation if missing)
+        enable_at = self.features.get("enable_at_reply", True) 
         enable_random = self.features.get("enable_ai_reply", False)
         
         # DEBUG LOG
-        logger.debug(f"[Check] Msg: {content} | IsAt: {is_at_me} (Reason: {match_reason}) | EnAt: {enable_at} | EnRand: {enable_random}")
+        logger.info(f"[AI Check] IsAt:{is_at_me} (Reason:{match_reason}) | EnGlobal:{self.features.get('enable_ai_global', True)} | EnAt:{enable_at} | EnRand:{enable_random}")
 
         if is_at_me and enable_at:
             should_reply_ai = True
@@ -269,8 +280,9 @@ class LiveController:
 
     def _allow_event(self, event_type, user, ttl=5):
         """
-        简单的去重逻辑，防止同一用户短时间内重复触发同一事件
+        每人去重逻辑 (Per-user duplication check)
         """
+        if not user: return False
         key = f"{event_type}:{user}"
         now = time.time()
         last = self.processed_cache.get(key, 0)
@@ -282,15 +294,18 @@ class LiveController:
             self.processed_cache.clear()
         return True
 
-    def _allow_event(self, event_type, user, ttl=10):
-        key = f"{event_type}:{user}"
+    def _check_global_throttle(self, event_type, interval):
+        """
+        全局频率限制 (Global throttling)
+        return True if allowed, False if throttled
+        """
         now = time.time()
-        last = self.processed_cache.get(key, 0)
-        if now - last < ttl:
+        last = self.global_cache.get(event_type, 0)
+        
+        if now - last < interval:
             return False
-        self.processed_cache[key] = now
-        if len(self.processed_cache) > 2000:
-            self.processed_cache.clear()
+            
+        self.global_cache[event_type] = now
         return True
 
     def _should_block_rule_event(self):
@@ -304,13 +319,19 @@ class LiveController:
         if not self.features.get("enable_welcome", True):
             return
 
-        # 优先使用 BrowserService 解析好的 user 字段
         username = data.get("user")
         if not username:
              raw = data.get("raw", "")
              username = raw.replace("来了", "").replace("进入直播间", "").strip()
 
-        if not self._allow_event("welcome", username, ttl=10):
+        # 1. Per-User De-dupe (防止同一个人反复刷屏，TTL 固定 60s)
+        if not self._allow_event("welcome", username, ttl=60):
+            return
+
+        # 2. Global Throttle (全局限流，使用配置的 welcome_interval)
+        ttl = float(self.config.get("ai", {}).get("welcome_interval", 4))
+        if not self._check_global_throttle("welcome", interval=ttl):
+            logger.debug(f"Welcome globally throttled (Interval: {ttl}s)")
             return
 
         # Check AI Linking
@@ -319,29 +340,25 @@ class LiveController:
                 self._trigger_ai_event("welcome", username)
                 return
             else:
-                # Linked but AI off -> Block
-                logger.debug("Welcome event blocked by AI Rule Link (AI Disabled).")
                 return
 
         logger.info(f"Preparing welcome for user: {username}")
-        
         tpls = self.speech_templates.get("welcome", [])
         if tpls and username:
             tpl = random.choice(tpls)
             msg = tpl.format(username=username)
             self._enqueue_msg(msg)
-            logger.info(f"Enqueued welcome msg: {msg}")
-        else:
-            logger.warning("No welcome templates available or empty username.")
 
     def _handle_gift(self, data: dict):
         if not self.features.get("enable_thanks_gift", True):
             return
             
-        gift_name = "礼物" # TODO: Parse gift name
-        user = data.get("user", "") # TODO: Parse user if missing
-        # 送礼判断多少秒
-        if not self._allow_event("gift", user, ttl=5):
+        gift_name = "礼物"
+        user = data.get("user", "")
+        
+        # Per-User Throttle (Only limit the same user, others can trigger freely)
+        ttl = float(self.config.get("ai", {}).get("gift_interval", 5))
+        if not self._allow_event("gift", user, ttl=ttl):
             return
 
         # Check AI Linking
@@ -353,14 +370,10 @@ class LiveController:
                 return
 
         raw = data.get("raw", "")
-        
-        # 尝试从 raw 解析礼物名
         try:
             if "送出" in raw:
-                # 简单处理: "送出了 鲜花 x 1" -> "鲜花"
                 suffix = raw.split("送出")[-1]
                 suffix = suffix.replace("了", "", 1).strip()
-                
                 count_str = ""
                 if "×" in suffix:
                     parts = suffix.split("×")
@@ -372,7 +385,6 @@ class LiveController:
                     if len(parts) > 1: count_str = "×" + parts[1].strip()
                 else:
                     gift_name = suffix
-                    
                 if not gift_name:
                     gift_name = f"小心意 {count_str}".strip()
         except:
@@ -390,13 +402,13 @@ class LiveController:
             return
             
         user = data.get("user", "")
-        
         if self._is_self(user): return
         
-        if not self._allow_event("follow", user, ttl=60):
+        # Per-User Throttle
+        ttl = float(self.config.get("ai", {}).get("follow_interval", 6))
+        if not self._allow_event("follow", user, ttl=ttl):
             return
 
-        # Check AI Linking
         if self.features.get("link_ai_to_rules", False):
             if self.features.get("enable_ai_global", True):
                 self._trigger_ai_event("follow", user)
@@ -418,14 +430,18 @@ class LiveController:
         username = data.get("user", "")
         if not username:
              raw = data.get("raw", "")
+             # Clean up the raw text to extract username
              username = raw.replace("为主播点赞了", "").replace("点赞了", "").strip()
-
+             # Fix: Remove trailing colons that might be left over
+             username = username.rstrip("：").rstrip(":")
+             
         if self._is_self(username): return
         
-        if not self._allow_event("like", username, ttl=30):
+        # Per-User Throttle
+        ttl = float(self.config.get("ai", {}).get("like_interval", 7))
+        if not self._allow_event("like", username, ttl=ttl):
             return
 
-        # Check AI Linking
         if self.features.get("link_ai_to_rules", False):
             if self.features.get("enable_ai_global", True):
                 self._trigger_ai_event("like", username)
@@ -434,7 +450,7 @@ class LiveController:
                 return
 
         tpls = self.speech_templates.get("thanks_like", [])
-        if tpls and username:
+        if tpls:
             tpl = random.choice(tpls)
             msg = tpl.format(username=username)
             self._enqueue_msg(msg)

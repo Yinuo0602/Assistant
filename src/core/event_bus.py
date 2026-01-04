@@ -20,8 +20,19 @@ class EventBus:
         """订阅事件"""
         if event_type not in cls._subscribers:
             cls._subscribers[event_type] = []
-        cls._subscribers[event_type].append(handler)
-        logger.debug(f"Handler subscribed to {event_type}")
+        
+        # Prevent duplicates
+        if handler not in cls._subscribers[event_type]:
+            cls._subscribers[event_type].append(handler)
+            logger.debug(f"Handler subscribed to {event_type}")
+
+    @classmethod
+    def unsubscribe(cls, event_type: str, handler: Callable):
+        """取消订阅"""
+        if event_type in cls._subscribers:
+            if handler in cls._subscribers[event_type]:
+                cls._subscribers[event_type].remove(handler)
+                logger.debug(f"Handler unsubscribed from {event_type}")
 
     @classmethod
     def publish(cls, event_type: str, data: Any = None):

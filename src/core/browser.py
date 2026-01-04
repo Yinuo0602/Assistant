@@ -142,7 +142,15 @@ class BrowserService(threading.Thread):
                                      }
                                 }
                             }
-                            return clone.innerText.replace(/[\\n\\r]+/g, ' ').trim();
+
+                            // FIX: 强制在所有子元素前后增加空格，防止灯牌和名字(Badge+Name)粘连
+                            // 针对 douyin 的 dom 结构，通常是 span 挨着 span
+                            clone.querySelectorAll('span, div, i, b, strong').forEach(el => {
+                                 el.insertAdjacentText('beforebegin', ' ');
+                                 el.insertAdjacentText('afterend', ' ');
+                            });
+
+                            return clone.innerText.replace(/[\\n\\r\\s]+/g, ' ').trim();
                         }
 
                         // 2. 寻找最佳容器

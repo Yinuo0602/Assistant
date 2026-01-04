@@ -6,7 +6,9 @@ build/
 dist/
 
 # Configuration
-config/config.json
+
+# User data
+userdata/
 
 # Python cache
 __pycache__/

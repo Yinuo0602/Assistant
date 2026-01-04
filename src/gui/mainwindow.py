@@ -375,8 +375,13 @@ class MainWindow(QMainWindow):
         api_key = self.input_apikey.text().strip()
         
         if not api_key:
-            self._append_log("🔴 请输入 API Key")
-            return
+            self._append_log("⚠️ 未输入 API Key，已自动关闭 AI 相关功能")
+            self.cb_ai_global.setChecked(False)
+            self.cb_ai_link_rules.setChecked(False)
+            self.cb_ai_chat.setChecked(False)
+            self.cb_ai_warmup.setChecked(False)
+            self.cb_at_reply.setChecked(False)
+            # Don't return, allow saving other settings
 
         if self.live_controller:
             self.live_controller.update_ai_config(provider, api_key, model)
@@ -478,10 +483,35 @@ class MainWindow(QMainWindow):
         logger.info("Command: Goto Login Page")
         self.browser_service.send_cmd(BrowserCommand.GOTO, "https://www.douyin.com/")
 
+    def _save_feature_to_config(self, key, value):
+        try:
+            path = get_config_path("config.json")
+            if not os.path.exists(path): return
+
+            # Read
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            # Update (Ensure structure)
+            if "features" not in data: data["features"] = {}
+            # if data["features"].get(key) == value: return # Skip optimization to be sure
+
+            data["features"][key] = value
+            
+            # Write
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+                
+        except Exception as e:
+            logger.error(f"Failed to save feature {key}: {e}")
+
     def _on_feature_toggled(self, feature_name, enabled):
         if self.live_controller:
             self.live_controller.set_feature(feature_name, enabled)
             self._append_log(f"🔧 功能 '{feature_name}' 已{'开启' if enabled else '关闭'}")
+            
+        # Persist to file
+        self._save_feature_to_config(feature_name, enabled)
 
     def _on_global_ai_toggled(self, enabled):
         # UI Logic: Disable sub-checkboxes if global is off
@@ -577,54 +607,159 @@ class MainWindow(QMainWindow):
         self.btn_stop.setEnabled(False)
 
     def _init_config_tab(self, parent):
-        layout = QVBoxLayout(parent)
+        self.config_inputs = {} # Store widget references
+
+        main_layout = QVBoxLayout(parent)
         
         # Instructions
-        layout.addWidget(QLabel("在此处修改 JSON 配置，点击下方按钮即可实时生效，无需重启程序。AI 提示词在 speech_templates.json 中。"))
+        topic_label = QLabel("在此处修改话术和 AI 设定，点击下方按钮即可实时生效。")
+        topic_label.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 5px;")
+        main_layout.addWidget(topic_label)
 
+        # Content Area with Splitter
         splitter = QSplitter(Qt.Horizontal)
         
-        # Left: Config.json
+        # --- Left Column: Lists (Rules/Words) ---
         left_widget = QWidget()
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setWidget(left_widget)
+        
         l_layout = QVBoxLayout(left_widget)
-        l_layout.addWidget(QLabel("📝 config.json (基础配置)"))
-        self.editor_config = QPlainTextEdit()
-        self.editor_config.setStyleSheet("font-family: Consolas; font-size: 13px; background: #fff;")
-        l_layout.addWidget(self.editor_config)
+        l_layout.setContentsMargins(10, 10, 10, 10)
+        l_layout.setSpacing(15)
+        l_layout.addWidget(QLabel("<h3>📜 互动规则 / 词库 (一行一条)</h3>"))
+
+        self._add_input(l_layout, "at_keywords", "备用 @关键词 (当没有识别到昵称时)", 
+                       placeholder="例如：\n主播\n助理\n管理")
+        self._add_input(l_layout, "welcome", "进场欢迎话术", 
+                       placeholder="例如：\n欢迎 {username} 来到直播间！\n欢迎 {username}，等你好久啦~",
+                       extra=("welcome_interval", "所有人间隔(秒):", "10"))
+        self._add_input(l_layout, "thanks_gift", "感谢送礼话术", 
+                       placeholder="例如：\n感谢 {username} 送的 {gift_name}！\n老板大气！谢谢 {username}！",
+                       extra=("gift_interval", "间隔(秒):", "5"))
+        self._add_input(l_layout, "thanks_follow", "感谢关注话术", 
+                       placeholder="例如：\n感谢 {username} 的关注！\n欢迎 {username} 加入粉丝团~",
+                       extra=("follow_interval", "间隔(秒):", "60"))
+        self._add_input(l_layout, "thanks_like", "感谢点赞话术", 
+                       placeholder="例如：\n感谢 {username} 点赞！\n谢谢 {username} 的小心心~",
+                       extra=("like_interval", "间隔(秒):", "30"))
         
-        # Right: Speech Templates
+        # --- Auto Warmup ---
+        # "warmup_interval": "自动暖场 (定时随机发送)，间隔时间：多少秒"
+        self._add_input(l_layout, "interactive", "自动暖场话术 (定时随机发送)", 
+                       placeholder="例如：\n如果是新朋友，可以点点关注哦~\n大家有什么想问的可以直接打在公屏上。",
+                       extra=("warmup_interval", "发送间隔(秒):", "180"))
+
+        l_layout.addStretch()
+
+        # --- Right Column: AI Prompts ---
         right_widget = QWidget()
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setWidget(right_widget)
+
         r_layout = QVBoxLayout(right_widget)
-        r_layout.addWidget(QLabel("💬 speech_templates.json (话术/AI指令)"))
-        self.editor_templates = QPlainTextEdit()
-        self.editor_templates.setStyleSheet("font-family: Consolas; font-size: 13px; background: #fff;")
-        r_layout.addWidget(self.editor_templates)
+        r_layout.setContentsMargins(10, 10, 10, 10)
+        r_layout.setSpacing(15)
+        r_layout.addWidget(QLabel("<h3>🤖 AI 提示词 (System Prompts)</h3>"))
         
-        splitter.addWidget(left_widget)
-        splitter.addWidget(right_widget)
-        splitter.setStretchFactor(0, 1) # Equal split
-        splitter.setStretchFactor(1, 1)
+        # --- AI Global Param (Compact) ---
+        # "reply_probability": "ai随机互动..."
+        prob_layout = QHBoxLayout()
+        prob_layout.addWidget(QLabel("🎲 AI 随机互动回复概率 (0.0 - 1.0):"))
+        self.input_prob = QLineEdit("0.3")
+        self.input_prob.setFixedWidth(60)
+        prob_layout.addWidget(self.input_prob)
+        prob_layout.addStretch()
+        r_layout.addLayout(prob_layout)
+        self.config_inputs["reply_probability"] = self.input_prob
+
+        self._add_input(r_layout, "system_default", "AI 总身份设定 (System Prompt)", height=80)
+        self._add_input(r_layout, "system_event", "AI 回复线程身份 (处理事件)", height=60)
         
-        layout.addWidget(splitter, 1)
+        self._add_input(r_layout, "reply_anchor", "回复 @我/关键词 (Prompt)", height=100,
+                       tip="{anchor_name}=主播名, {user}=用户, {content}=内容")
         
+        self._add_input(r_layout, "event_welcome", "AI 进场欢迎 (Prompt)", height=80, tip="{user}=用户")
+        self._add_input(r_layout, "event_gift", "AI 感谢送礼 (Prompt)", height=80, tip="{user}=用户, {gift_name}=礼物")
+        self._add_input(r_layout, "event_follow", "AI 感谢关注 (Prompt)", height=80, tip="{user}=用户")
+        self._add_input(r_layout, "event_like", "AI 感谢点赞 (Prompt)", height=80, tip="{user}=用户")
+        
+        # --- AI Idle ---
+        self._add_input(r_layout, "event_idle", "AI 自动暖场 (Prompt - 监控空闲)", height=80, 
+                       tip="无参数", extra=("ai_warmup_interval", "冷场判定(秒):", "120"))
+
+        r_layout.addStretch()
+
+        splitter.addWidget(left_scroll)
+        splitter.addWidget(right_scroll)
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 6)
+        
+        main_layout.addWidget(splitter, 1)
+        
+        # Bottom Buttons
         btn_layout = QHBoxLayout()
         self.btn_load_cfg = QPushButton("🔄 放弃修改 (重新读取)")
-        self.btn_save_reload = QPushButton("💾 保存并立即生效 (Reload)")
-        self.btn_save_reload.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; padding: 6px 15px;")
+        self.btn_save_reload = QPushButton("💾 保存并立即生效")
+        self.btn_save_reload.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; padding: 8px 20px;")
+        self.btn_save_reload.setCursor(Qt.PointingHandCursor)
         
         btn_layout.addStretch()
         btn_layout.addWidget(self.btn_load_cfg)
         btn_layout.addWidget(self.btn_save_reload)
         
-        layout.addLayout(btn_layout)
+        main_layout.addLayout(btn_layout)
         
         # Bind
-        self.btn_load_cfg.clicked.connect(self._load_config_files_to_editor)
+        self.btn_load_cfg.clicked.connect(self._load_advanced_config)
         self.btn_save_reload.clicked.connect(self._save_and_reload_configs)
         
-        # Initial load (Delayed to ensure files exist?)
-        # Call it now
-        self._load_config_files_to_editor()
+        # Initial call
+        self._load_advanced_config()
+
+    def _add_input(self, layout, key, label_text, height=100, placeholder="", tip="", extra=None):
+        group = QGroupBox(label_text)
+        group.setStyleSheet("QGroupBox { font-weight: bold; color: #333; }")
+        gl = QVBoxLayout(group)
+        gl.setContentsMargins(5, 10, 5, 5)
+        
+        # If extra param exists (e.g. interval), add a small row at the top
+        if extra:
+            # extra = (key, label, default)
+            ex_key, ex_label, ex_default = extra
+            
+            row = QHBoxLayout()
+            row.setContentsMargins(0,0,0,5)
+            row.addWidget(QLabel(ex_label))
+            
+            line = QLineEdit(ex_default)
+            line.setFixedWidth(60)
+            line.setStyleSheet("font-weight: normal;")
+            row.addWidget(line)
+            row.addStretch()
+            
+            gl.addLayout(row)
+            self.config_inputs[ex_key] = line
+        
+        if tip:
+            l_tip = QLabel(f"ℹ️ 变量: {tip}")
+            l_tip.setStyleSheet("color: #666; font-size: 11px; font-weight: normal;")
+            gl.addWidget(l_tip)
+
+        editor = QPlainTextEdit()
+        editor.setStyleSheet("font-family: Consolas, 'Microsoft YaHei'; font-size: 12px; background: #fff; font-weight: normal;")
+        if height:
+            editor.setFixedHeight(height)
+        if placeholder:
+            editor.setPlaceholderText(placeholder)
+            
+        gl.addWidget(editor)
+        layout.addWidget(group)
+        
+        self.config_inputs[key] = editor
+
 
     def _init_about_tab(self, parent):
         # 使用 ScrollArea 包裹所有内容，防止内容过多撑大窗口最小高度
@@ -722,48 +857,154 @@ class MainWindow(QMainWindow):
         layout.addWidget(zsm_group)
         layout.addStretch()
 
-    def _load_config_files_to_editor(self):
+    def _load_advanced_config(self):
         try:
+            # 1. Load config.json
             with open(get_config_path("config.json"), "r", encoding="utf-8") as f:
-                self.editor_config.setPlainText(f.read())
-            
-            with open(get_config_path("speech_templates.json"), "r", encoding="utf-8") as f:
-                self.editor_templates.setPlainText(f.read())
+                cfg = json.load(f)
                 
-            self._append_log("📖 配置编辑器已加载最新文件内容")
+            # Load at_keywords (list -> lines)
+            keywords = cfg.get("douyin", {}).get("at_keywords", [])
+            if isinstance(keywords, list):
+                self.config_inputs["at_keywords"].setPlainText("\n".join(keywords))
+            
+            # Load Params (AI & Warmup)
+            # Default fallback values matching Controller defaults
+            ai_cfg = cfg.get("ai", {})
+            self.config_inputs["reply_probability"].setText(str(ai_cfg.get("reply_probability", 0.3)))
+            self.config_inputs["warmup_interval"].setText(str(ai_cfg.get("warmup_interval", 180)))
+            self.config_inputs["ai_warmup_interval"].setText(str(ai_cfg.get("ai_warmup_interval", 120)))
+            
+            self.config_inputs["welcome_interval"].setText(str(ai_cfg.get("welcome_interval", 10)))
+            self.config_inputs["gift_interval"].setText(str(ai_cfg.get("gift_interval", 5)))
+            self.config_inputs["follow_interval"].setText(str(ai_cfg.get("follow_interval", 60)))
+            self.config_inputs["like_interval"].setText(str(ai_cfg.get("like_interval", 30)))
+
+            # 2. Load speech_templates.json
+            with open(get_config_path("speech_templates.json"), "r", encoding="utf-8") as f:
+                tpl = json.load(f)
+            
+            # Helper to load list
+            def load_list(key):
+                val = tpl.get(key, [])
+                if isinstance(val, list):
+                    self.config_inputs[key].setPlainText("\n".join(val))
+            
+            load_list("welcome")
+            load_list("thanks_gift")
+            load_list("thanks_follow")
+            load_list("thanks_like")
+            load_list("interactive")
+            
+            # Helper to load prompt
+            prompts = tpl.get("ai_prompts", {})
+            def load_prompt(key):
+                val = prompts.get(key, "")
+                self.config_inputs[key].setPlainText(str(val))
+            
+            load_prompt("system_default")
+            load_prompt("system_event")
+            load_prompt("reply_anchor")
+            load_prompt("event_welcome")
+            load_prompt("event_gift")
+            load_prompt("event_follow")
+            load_prompt("event_like")
+            load_prompt("event_idle")
+
+            self._append_log("📖 配置已读取到编辑器")
+            
         except Exception as e:
-            self._append_log(f"❌ 读取配置文件失败: {e}")
+            self._append_log(f"❌ 读取配置失败: {e}")
+            logger.error(f"Load Config Error: {e}")
 
     def _save_and_reload_configs(self):
         try:
-            # 1. Validation (Simple JSON check)
-            cfg_txt = self.editor_config.toPlainText()
-            tpl_txt = self.editor_templates.toPlainText()
+            # --- 1. Prepare Data ---
             
-            json.loads(cfg_txt) # Check Valid
-            json.loads(tpl_txt)
+            # Helper: Get lines from input
+            def get_lines(key):
+                text = self.config_inputs[key].toPlainText().strip()
+                if not text: return []
+                return [line.strip() for line in text.split('\n') if line.strip()]
+
+            # Helper: Get text
+            def get_text(key):
+                if isinstance(self.config_inputs[key], QPlainTextEdit):
+                    return self.config_inputs[key].toPlainText().strip()
+                elif isinstance(self.config_inputs[key], QLineEdit):
+                     return self.config_inputs[key].text().strip()
+                return ""
+
+            # --- 2. Update config.json ---
+            cfg_path = get_config_path("config.json")
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg_data = json.load(f)
             
-            # 2. Save
-            with open(get_config_path("config.json"), "w", encoding="utf-8") as f:
-                f.write(cfg_txt)
-            with open(get_config_path("speech_templates.json"), "w", encoding="utf-8") as f:
-                f.write(tpl_txt)
+            # Ensure path exists
+            if "douyin" not in cfg_data: cfg_data["douyin"] = {}
+            cfg_data["douyin"]["at_keywords"] = get_lines("at_keywords")
+            
+            # Save Params
+            if "ai" not in cfg_data: cfg_data["ai"] = {}
+            try:
+                cfg_data["ai"]["reply_probability"] = float(get_text("reply_probability"))
+                cfg_data["ai"]["warmup_interval"] = int(get_text("warmup_interval"))
+                cfg_data["ai"]["ai_warmup_interval"] = int(get_text("ai_warmup_interval"))
                 
-            # 3. Reload Controller
+                cfg_data["ai"]["welcome_interval"] = int(float(get_text("welcome_interval")))
+                cfg_data["ai"]["gift_interval"] = int(float(get_text("gift_interval")))
+                cfg_data["ai"]["follow_interval"] = int(float(get_text("follow_interval")))
+                cfg_data["ai"]["like_interval"] = int(float(get_text("like_interval")))
+            except ValueError:
+                self._append_log("⚠️ 参数格式错误，已忽略数值更新")
+
+            # Write config.json
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(cfg_data, f, indent=4, ensure_ascii=False)
+
+            # --- 3. Update speech_templates.json ---
+            tpl_path = get_config_path("speech_templates.json")
+            with open(tpl_path, "r", encoding="utf-8") as f:
+                tpl_data = json.load(f)
+            
+            # Update lists
+            tpl_data["welcome"] = get_lines("welcome")
+            tpl_data["thanks_gift"] = get_lines("thanks_gift")
+            tpl_data["thanks_follow"] = get_lines("thanks_follow")
+            tpl_data["thanks_like"] = get_lines("thanks_like")
+            tpl_data["interactive"] = get_lines("interactive")
+            
+            # Update Prompts
+            if "ai_prompts" not in tpl_data: tpl_data["ai_prompts"] = {}
+            p = tpl_data["ai_prompts"]
+            
+            p["system_default"] = get_text("system_default")
+            p["system_event"] = get_text("system_event")
+            p["reply_anchor"] = get_text("reply_anchor")
+            p["event_welcome"] = get_text("event_welcome")
+            p["event_gift"] = get_text("event_gift")
+            p["event_follow"] = get_text("event_follow")
+            p["event_like"] = get_text("event_like")
+            p["event_idle"] = get_text("event_idle")
+            
+            # Write speech_templates.json
+            with open(tpl_path, "w", encoding="utf-8") as f:
+                json.dump(tpl_data, f, indent=4, ensure_ascii=False)
+
+            # --- 4. Reload Controller ---
             if self.live_controller:
                 self.live_controller.reload_config()
                 self._append_log("✅ 配置已保存并重载！新指令已生效。")
+                self.live_controller.set_feature("enable_auto_warmup", self.cb_auto_warmup.isChecked()) # Re-apply UI state just in case
             else:
                 self._append_log("💾 配置已保存。")
             
-            # Refresh UI (Title, etc)
+            # Update UI title etc just in case
             self._load_config_to_ui()
 
-                
-        except json.JSONDecodeError as e:
-            QMessageBox.critical(self, "JSON 格式错误", f"配置格式有误，请检查标点符号。\nError: {e}")
         except Exception as e:
-            self._append_log(f"❌ 保存/重载失败: {e}")
+            self._append_log(f"❌ 保存失败: {e}")
+            logger.error(f"Save Config Error: {e}")
 
     def closeEvent(self, event):
         # 关闭窗口时杀死浏览器
